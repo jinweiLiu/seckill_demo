@@ -110,8 +110,9 @@
     update stock
     <set>
       sale = sale + 1,
+      version = version + 1,
     </set>
     WHERE id = #{id,jdbcType=INTEGER}
-    AND sale = #{sale,jdbcType=INTEGER}
+    AND version = #{version,jdbcType=INTEGER}
   </update>
 </mapper>
