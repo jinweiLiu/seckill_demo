@@ -6,8 +6,11 @@ import com.ecnu.ljw.second_demo.mapper.OrderMapper;
 import com.ecnu.ljw.second_demo.service.OrderService;
 import com.ecnu.ljw.second_demo.service.StockService;
 
+import org.checkerframework.checker.units.qual.s;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -46,10 +49,16 @@ public class OrderServiceImpl implements OrderService{
         return stock.getCount() - (stock.getSale() + 1);
     }
 
+    @Transactional(rollbackFor = Exception.class, propagation =  Propagation.REQUIRED)
     @Override
     public int createPessimisticOrder(int sid) {
         //校验库存 悲观锁的方式
-        return 0;
+        Stock stock = checkStockForUpdate(sid);
+        //更新库存
+        saleStock(stock);
+        //创建订单
+        createOrder(stock);
+        return stock.getCount() - (stock.getSale() + 1);
     }
 
     @Override
@@ -70,7 +79,7 @@ public class OrderServiceImpl implements OrderService{
         return null;
     }
     
-        /**
+    /**
      * 检查库存
      * @param sid
      * @return
@@ -89,6 +98,7 @@ public class OrderServiceImpl implements OrderService{
      */
     private void saleStock(Stock stock) {
         stock.setSale(stock.getSale() + 1);
+        stock.setVersion(stock.getVersion() + 1);
         stockService.updateStockById(stock);
     }
 
@@ -100,6 +110,14 @@ public class OrderServiceImpl implements OrderService{
         log.info("查询数据库，尝试更新库存");
         int count = stockService.updateStockByOptimistic(stock);
         return count != 0;
+    }
+
+    private Stock checkStockForUpdate(int sid){
+        Stock stock = stockService.getStockByIdForUpdate(sid);
+        if(stock.getSale().equals(stock.getCount())){
+            throw new RuntimeException("库存不足");
+        }
+        return stock;
     }
 
     /**

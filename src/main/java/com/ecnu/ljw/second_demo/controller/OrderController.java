@@ -1,7 +1,6 @@
 package com.ecnu.ljw.second_demo.controller;
 
 import com.ecnu.ljw.second_demo.service.OrderService;
-import com.google.common.util.concurrent.RateLimiter;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -52,6 +51,22 @@ public class OrderController {
             log.info("购买成功，剩余库存为: [{}]", id);
         }catch(Exception e){
             log.error("购买失败：[{}]", e.getMessage());
+            return "购买失败，库存不足";
+        }
+        return String.format("购买成功，剩余库存为：%d", id);
+    }
+    
+    /**
+     * 下单接口：悲观锁更新库存，事务for update更新库存
+     */
+    @RequestMapping(value="/createPessimisticOrder/{sid}", method=RequestMethod.GET)
+    public String createPessimisticOrder(@PathVariable int sid) {
+        int id;
+        try {
+            id = orderService.createPessimisticOrder(sid);
+            log.info("购买成功，剩余库存为：[{}]", id);
+        } catch (Exception e) {
+            log.info("购买失败：[{}]", e.getMessage());
             return "购买失败，库存不足";
         }
         return String.format("购买成功，剩余库存为：%d", id);
