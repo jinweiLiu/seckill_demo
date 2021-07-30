@@ -1,6 +1,9 @@
 package com.ecnu.ljw.second_demo.controller;
 
+import java.util.concurrent.TimeUnit;
+
 import com.ecnu.ljw.second_demo.service.OrderService;
+import com.google.common.util.concurrent.RateLimiter;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -19,7 +22,7 @@ public class OrderController {
     private OrderService orderService;
 
     // Guava令牌桶：每秒放行10个请求
-    //RateLimiter rateLimiter = RateLimiter.create(10);
+    RateLimiter rateLimiter = RateLimiter.create(10);
     
     /**
      * 下单接口：导致超卖的错误示范
@@ -43,8 +46,19 @@ public class OrderController {
      */
     @RequestMapping(value="/createOptimisticOrder/{sid}", method=RequestMethod.GET)
     public String createOptimisticOrder(@PathVariable int sid) {
-        //1、阻塞使获取令牌
-        //log.info("等待时间" + rateLimiter.acquire());
+        //1、阻塞式获取令牌
+        //阻塞式获取令牌：请求进来后，若令牌桶里没有足够的令牌，就在这里阻塞住，等待令牌的发放。
+        log.info("等待时间" + rateLimiter.acquire());
+        //2、非阻塞式获取令牌
+        //非阻塞式获取令牌：请求进来后，若令牌桶里没有足够的令牌，会尝试等待设置好的时间（这里写了1000ms），
+        //其会自动判断在1000ms后，这个请求能不能拿到令牌，如果不能拿到，直接返回抢购失败。
+        //如果timeout设置为0，则等于阻塞时获取令牌。
+        /*
+        if(!rateLimiter.tryAcquire(1000,TimeUnit.MILLISECONDS)){
+            log.warn("你被限流了，真不幸，直接返回失败");
+            return "购买失败，库存不足";
+        }
+        */
         int id;
         try{
             id = orderService.createOptimisticOrder(sid);

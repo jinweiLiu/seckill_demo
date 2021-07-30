@@ -6,7 +6,6 @@ import com.ecnu.ljw.second_demo.mapper.OrderMapper;
 import com.ecnu.ljw.second_demo.service.OrderService;
 import com.ecnu.ljw.second_demo.service.StockService;
 
-import org.checkerframework.checker.units.qual.s;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
