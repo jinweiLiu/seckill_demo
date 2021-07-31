@@ -20,7 +20,10 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class UserServiceImpl implements UserService{
 
+    //MD5加盐
     private static final String SALT = "randomString";
+    //限制用户接口访问次数
+    private static final int ALLOW_COUNT = 10;
 
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
@@ -64,14 +67,21 @@ public class UserServiceImpl implements UserService{
 
     @Override
     public int addUserCount(Integer userId) throws Exception {
-        // TODO Auto-generated method stub
-        return 0;
+        String limitKey = CacheKey.LIMIT_KEY.getKey() + "_" + userId;
+        stringRedisTemplate.opsForValue().setIfAbsent(limitKey, "0", 3600, TimeUnit.SECONDS);
+        Long limit = stringRedisTemplate.opsForValue().increment(limitKey);
+        return Integer.parseInt(String.valueOf(limit));
     }
 
     @Override
     public boolean getUserIsBanned(Integer userId) {
-        // TODO Auto-generated method stub
-        return false;
+        String limitKey = CacheKey.LIMIT_KEY.getKey() + "_" + userId;
+        String limitNum = stringRedisTemplate.opsForValue().get(limitKey);
+        if (limitNum == null) {
+            log.error("该用户没有访问申请验证值记录，疑似异常");
+            return true;
+        }
+        return Integer.parseInt(limitNum) > ALLOW_COUNT;
     }
 
 }
