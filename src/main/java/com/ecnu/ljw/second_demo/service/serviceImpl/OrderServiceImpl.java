@@ -2,11 +2,15 @@ package com.ecnu.ljw.second_demo.service.serviceImpl;
 
 import com.ecnu.ljw.second_demo.entity.Order;
 import com.ecnu.ljw.second_demo.entity.Stock;
+import com.ecnu.ljw.second_demo.entity.User;
 import com.ecnu.ljw.second_demo.mapper.OrderMapper;
+import com.ecnu.ljw.second_demo.mapper.UserMapper;
 import com.ecnu.ljw.second_demo.service.OrderService;
 import com.ecnu.ljw.second_demo.service.StockService;
+import com.ecnu.ljw.second_demo.utils.CacheKey;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,6 +26,12 @@ public class OrderServiceImpl implements OrderService{
 
     @Autowired
     private OrderMapper orderMapper;
+
+    @Autowired
+    private UserMapper userMapper;
+
+    @Autowired
+    private StringRedisTemplate stringRedisTemplate;
 
     @Override
     public int createWrongOrder(int sid) {
@@ -62,8 +72,46 @@ public class OrderServiceImpl implements OrderService{
 
     @Override
     public int createVerifiedOrder(Integer sid, Integer userId, String verifyHash) throws Exception {
-        // TODO Auto-generated method stub
-        return 0;
+
+        //验证是否在抢购时间内
+        log.info("请自行验证是否在抢购时间内,假设此处验证成功");
+
+        //验证hash值合法性
+        String hashKey = CacheKey.HASH_KEY.getKey() + "_" + sid + "_" + userId;
+        System.out.println(hashKey);
+        String verifyHashInRedis = stringRedisTemplate.opsForValue().get(hashKey);
+
+        if (!verifyHash.equals(verifyHashInRedis)) {
+            throw new Exception("hash值与Redis中不符合");
+        }
+        log.info("验证hash值合法性成功");
+
+        // 检查用户合法性
+        User user = userMapper.selectByPrimaryKey(userId.longValue());
+        if (user == null) {
+            throw new Exception("用户不存在");
+        }
+        log.info("用户信息验证成功：[{}]", user.toString());
+
+        // 检查商品合法性
+        Stock stock = stockService.getStockById(sid);
+        if (stock == null) {
+            throw new Exception("商品不存在");
+        }
+        log.info("商品信息验证成功：[{}]", stock.toString());
+
+        //乐观锁更新库存
+        boolean success = saleStockOptimistic(stock);
+        if (!success){
+            throw new RuntimeException("过期库存值，更新失败");
+        }
+        log.info("乐观锁更新库存成功");
+
+        //创建订单
+        createOrderWithUserInfoInDB(stock, userId);
+        log.info("创建订单成功");
+
+        return stock.getCount() - (stock.getSale()+1);
     }
 
     @Override
@@ -128,6 +176,19 @@ public class OrderServiceImpl implements OrderService{
         Order order = new Order();
         order.setSid(stock.getId());
         order.setName(stock.getName());
+        return orderMapper.insertSelective(order);
+    }
+
+    /**
+     * 创建订单：保存用户订单信息到数据库
+     * @param stock
+     * @return
+     */
+    private int createOrderWithUserInfoInDB(Stock stock, Integer userId) {
+        Order order = new Order();
+        order.setSid(stock.getId());
+        order.setName(stock.getName());
+        order.setUserId(userId);
         return orderMapper.insertSelective(order);
     }
 }

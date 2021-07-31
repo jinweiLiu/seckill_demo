@@ -1,8 +1,7 @@
 package com.ecnu.ljw.second_demo.controller;
 
-import java.util.concurrent.TimeUnit;
-
 import com.ecnu.ljw.second_demo.service.OrderService;
+import com.ecnu.ljw.second_demo.service.UserService;
 import com.google.common.util.concurrent.RateLimiter;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,6 +11,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RequestParam;
 
 
 @RestController
@@ -20,6 +20,9 @@ public class OrderController {
 
     @Autowired
     private OrderService orderService;
+
+    @Autowired
+    private UserService userService;
 
     // Guava令牌桶：每秒放行10个请求
     RateLimiter rateLimiter = RateLimiter.create(10);
@@ -85,5 +88,43 @@ public class OrderController {
         }
         return String.format("购买成功，剩余库存为：%d", id);
     }
-    
+
+    /**
+     * 验证接口：下单前用户获取验证值
+     * @return
+     */
+    @RequestMapping(value = "/getVerifyHash", method = {RequestMethod.GET})
+    public String getVerifyHash(@RequestParam(value = "sid") Integer sid,
+                                @RequestParam(value = "userId") Integer userId) {
+        String hash;
+        try {
+            hash = userService.getVerifyHash(sid, userId);
+        } catch (Exception e) {
+            log.error("获取验证hash失败，原因：[{}]", e.getMessage());
+            return "获取验证hash失败";
+        }
+        return String.format("请求抢购验证hash值为：%s", hash);
+    }
+
+    /**
+     * 下单接口：要求用户验证的抢购接口
+     * @param sid
+     * @param userId
+     * @param verifyHash
+     * @return
+     */
+    @RequestMapping(value = "/createOrderWithVerifiedUrl", method = {RequestMethod.GET})
+    public String createOrderWithVerifiedUrl(@RequestParam(value = "sid") Integer sid,
+                                             @RequestParam(value = "userId") Integer userId,
+                                             @RequestParam(value = "verifyHash") String verifyHash) {
+        int stockLeft;
+        try {
+            stockLeft = orderService.createVerifiedOrder(sid, userId, verifyHash);
+            log.info("购买成功，剩余库存为: [{}]", stockLeft);
+        } catch (Exception e) {
+            log.error("购买失败：[{}]", e.getMessage());
+            return e.getMessage();
+        }
+        return String.format("购买成功，剩余库存为：%d", stockLeft);
+    }
 }
