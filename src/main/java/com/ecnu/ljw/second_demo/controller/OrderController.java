@@ -1,6 +1,12 @@
 package com.ecnu.ljw.second_demo.controller;
 
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+
 import com.ecnu.ljw.second_demo.service.OrderService;
+import com.ecnu.ljw.second_demo.service.StockService;
 import com.ecnu.ljw.second_demo.service.UserService;
 import com.google.common.util.concurrent.RateLimiter;
 
@@ -19,6 +25,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 public class OrderController {
 
     @Autowired
+    private StockService stockService;
+
+    @Autowired
     private OrderService orderService;
 
     @Autowired
@@ -26,6 +35,12 @@ public class OrderController {
 
     // Guava令牌桶：每秒放行10个请求
     RateLimiter rateLimiter = RateLimiter.create(10);
+
+    // 延时时间：预估读数据库数据业务逻辑的耗时，用来做缓存再删除
+    private static final int DELAY_MILLSECONDS = 1000;
+
+    // 延时双删线程池
+    private static ExecutorService cachedThreadPool = new ThreadPoolExecutor(0, Integer.MAX_VALUE, 60L, TimeUnit.SECONDS,new SynchronousQueue<Runnable>());
     
     /**
      * 下单接口：导致超卖的错误示范
@@ -147,4 +162,89 @@ public class OrderController {
         return String.format("购买成功，剩余库存为：%d", stockLeft);
     }
     
+    /**
+     * 下单接口：先删除缓存，再更新数据库
+     * @param sid
+     * @return
+     */
+    @RequestMapping("/createOrderWithCacheV1/{sid}")
+    public String createOrderWithCacheV1(@PathVariable int sid){
+        int count = 0;
+        try {
+            //删除库存缓存
+            stockService.delStockCountCache(sid);
+            //完成扣库存下单事务
+            count = orderService.createPessimisticOrder(sid);
+        } catch (Exception e) {
+            log.error("购买失败：[{}]", e.getMessage());
+            return "购买失败，库存不足";
+        }
+        log.info("购买成功，剩余库存为: [{}]", count);
+        return String.format("购买成功，剩余库存为：%d", count);
+    }
+
+    /**
+     * 下单接口：先更新数据库，再删缓存
+     * @param sid
+     * @return
+     */
+    @RequestMapping("/createOrderWithCacheV2/{sid}")
+    public String createOrderWithCacheV2(@PathVariable int sid) {
+        int count = 0;
+        try {
+            // 完成扣库存下单事务
+            count = orderService.createPessimisticOrder(sid);
+            // 删除库存缓存
+            stockService.delStockCountCache(sid);
+        } catch (Exception e) {
+            log.error("购买失败：[{}]", e.getMessage());
+            return "购买失败，库存不足";
+        }
+        log.info("购买成功，剩余库存为: [{}]", count);
+        return String.format("购买成功，剩余库存为：%d", count);
+    }
+
+    /**
+     * 下单接口：先删除缓存，再更新数据库，缓存延时双删
+     * @param sid
+     * @return
+     */
+    @RequestMapping("/createOrderWithCacheV3/{sid}")
+    public String createOrderWithCacheV3(@PathVariable int sid) {
+        int count;
+        try {
+            // 删除库存缓存
+            stockService.delStockCountCache(sid);
+            // 完成扣库存下单事务
+            count = orderService.createPessimisticOrder(sid);
+            log.info("完成下单事务");
+            // 延时指定时间后再次删除缓存
+            cachedThreadPool.execute(new delCacheByThread(sid));
+        } catch (Exception e) {
+            log.error("购买失败：[{}]", e.getMessage());
+            return "购买失败，库存不足";
+        }
+        log.info("购买成功，剩余库存为: [{}]", count);
+        return String.format("购买成功，剩余库存为：%d", count);
+    }
+
+    /**
+     * 缓存再删除线程
+     */
+    private class delCacheByThread implements Runnable {
+        private int sid;
+        public delCacheByThread(int sid) {
+            this.sid = sid;
+        }
+        public void run() {
+            try {
+                log.info("异步执行缓存再删除，商品id：[{}]， 首先休眠：[{}] 毫秒", sid, DELAY_MILLSECONDS);
+                Thread.sleep(DELAY_MILLSECONDS);
+                stockService.delStockCountCache(sid);
+                log.info("再次删除商品id：[{}] 缓存", sid);
+            } catch (Exception e) {
+                log.error("delCacheByThread执行出错", e);
+            }
+        }
+    }
 }

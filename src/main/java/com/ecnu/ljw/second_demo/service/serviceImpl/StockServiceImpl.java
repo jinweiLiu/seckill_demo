@@ -44,7 +44,6 @@ public class StockServiceImpl implements StockService{
 
     @Override
     public Integer getStockCountByCache(int id) {
-        //不加密版
         String key = CacheKey.REDIS_KEY.getKey() + String.valueOf(id);
         String countStr = stringRedisTemplate.opsForValue().get(key);
         if(countStr == null){
@@ -56,9 +55,9 @@ public class StockServiceImpl implements StockService{
 
     @Override
     public void setStockCountCache(int id, int count) {
-        //不加密版
         String key = CacheKey.REDIS_KEY.getKey() + String.valueOf(id);
         String countStr = String.valueOf(count);
+        log.info("写入商品库存缓存: [{}] [{}]", key, countStr);
         stringRedisTemplate.opsForValue().set(key,countStr,3600,TimeUnit.SECONDS);
     }
 
@@ -66,6 +65,7 @@ public class StockServiceImpl implements StockService{
     public void delStockCountCache(int id) {
         String key = CacheKey.REDIS_KEY.getKey() + String.valueOf(id);
         stringRedisTemplate.delete(key);
+        log.info("删除商品id：[{}] 缓存", id);
     }
 
     @Override
