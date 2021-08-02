@@ -5,11 +5,13 @@ import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
+import com.alibaba.fastjson.JSONObject;
 import com.ecnu.ljw.second_demo.service.OrderService;
 import com.ecnu.ljw.second_demo.service.StockService;
 import com.ecnu.ljw.second_demo.service.UserService;
 import com.google.common.util.concurrent.RateLimiter;
 
+import org.springframework.amqp.core.AmqpTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -32,6 +34,9 @@ public class OrderController {
 
     @Autowired
     private UserService userService;
+
+    @Autowired
+    private AmqpTemplate rabbitTemplate;
 
     // Guava令牌桶：每秒放行10个请求
     RateLimiter rateLimiter = RateLimiter.create(10);
@@ -246,5 +251,44 @@ public class OrderController {
                 log.error("delCacheByThread执行出错", e);
             }
         }
+    }
+
+    /**
+     * 下单接口：异步处理订单
+     * @param sid
+     * @return
+     */
+    @RequestMapping(value = "/createOrderWithMq", method = {RequestMethod.GET})
+    public String createOrderWithMq(@RequestParam(value = "sid") Integer sid,
+                                  @RequestParam(value = "userId") Integer userId) {
+        try {
+            // 检查缓存中商品是否还有库存
+            Integer count = stockService.getStockCount(sid);
+            if (count == 0) {
+                return "秒杀请求失败，库存不足.....";
+            }
+
+            // 有库存，则将用户id和商品id封装为消息体传给消息队列处理
+            // 注意这里的有库存和已经下单都是缓存中的结论，存在不可靠性，在消息队列中会查表再次验证
+            log.info("有库存：[{}]", count);
+            JSONObject jsonObject = new JSONObject();
+            jsonObject.put("sid", sid);
+            jsonObject.put("userId", userId);
+            sendToOrderQueue(jsonObject.toJSONString());
+            return "秒杀请求提交成功";
+        } catch (Exception e) {
+            log.error("下单接口：异步处理订单异常：", e);
+            return "秒杀请求失败，服务器正忙.....";
+        }
+    }
+
+
+    /**
+     * 向消息队列orderQueue发送消息
+     * @param message
+     */
+    private void sendToOrderQueue(String message) {
+        log.info("这就去通知消息队列开始下单：[{}]", message);
+        this.rabbitTemplate.convertAndSend("orderQueue", message);
     }
 }
