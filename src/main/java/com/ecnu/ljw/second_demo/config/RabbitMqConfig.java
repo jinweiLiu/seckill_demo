@@ -6,6 +6,12 @@ import org.springframework.context.annotation.Configuration;
 
 @Configuration
 public class RabbitMqConfig {
+
+    @Bean
+    public Queue delCacheQueue() {
+        return new Queue("delCache");
+    }
+
     @Bean
     public Queue orderQueue(){
         return new Queue("orderQueue");

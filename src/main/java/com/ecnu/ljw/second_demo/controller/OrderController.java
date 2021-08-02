@@ -234,23 +234,30 @@ public class OrderController {
     }
 
     /**
-     * 缓存再删除线程
+     * 下单接口：先更新数据库，再删缓存，删除缓存失败重试，通知消息队列
+     * @param sid
+     * @return
      */
-    private class delCacheByThread implements Runnable {
-        private int sid;
-        public delCacheByThread(int sid) {
-            this.sid = sid;
+    @RequestMapping("/createOrderWithCacheV4/{sid}")
+    public String createOrderWithCacheV4(@PathVariable int sid) {
+        int count;
+        try {
+            // 完成扣库存下单事务
+            count = orderService.createPessimisticOrder(sid);
+            log.info("完成下单事务");
+            // 删除库存缓存
+            stockService.delStockCountCache(sid);
+            // 延时指定时间后再次删除缓存
+            // cachedThreadPool.execute(new delCacheByThread(sid));
+            // 假设上述再次删除缓存没成功，通知消息队列进行删除缓存
+            sendToDelCache(String.valueOf(sid));
+
+        } catch (Exception e) {
+            log.error("购买失败：[{}]", e.getMessage());
+            return "购买失败，库存不足";
         }
-        public void run() {
-            try {
-                log.info("异步执行缓存再删除，商品id：[{}]， 首先休眠：[{}] 毫秒", sid, DELAY_MILLSECONDS);
-                Thread.sleep(DELAY_MILLSECONDS);
-                stockService.delStockCountCache(sid);
-                log.info("再次删除商品id：[{}] 缓存", sid);
-            } catch (Exception e) {
-                log.error("delCacheByThread执行出错", e);
-            }
-        }
+        log.info("购买成功，剩余库存为: [{}]", count);
+        return "购买成功";
     }
 
     /**
@@ -282,6 +289,34 @@ public class OrderController {
         }
     }
 
+    /**
+     * 缓存再删除线程
+     */
+    private class delCacheByThread implements Runnable {
+        private int sid;
+        public delCacheByThread(int sid) {
+            this.sid = sid;
+        }
+        public void run() {
+            try {
+                log.info("异步执行缓存再删除，商品id：[{}]， 首先休眠：[{}] 毫秒", sid, DELAY_MILLSECONDS);
+                Thread.sleep(DELAY_MILLSECONDS);
+                stockService.delStockCountCache(sid);
+                log.info("再次删除商品id：[{}] 缓存", sid);
+            } catch (Exception e) {
+                log.error("delCacheByThread执行出错", e);
+            }
+        }
+    }
+
+    /**
+     * 向消息队列delCache发送消息
+     * @param message
+     */
+    private void sendToDelCache(String message) {
+        log.info("这就去通知消息队列开始重试删除缓存：[{}]", message);
+        this.rabbitTemplate.convertAndSend("delCache", message);
+    }
 
     /**
      * 向消息队列orderQueue发送消息
