@@ -290,6 +290,63 @@ public class OrderController {
     }
 
     /**
+     * 下单接口：异步处理订单
+     * @param sid
+     * @return
+     */
+    @RequestMapping(value = "/createUserOrderWithMq", method = {RequestMethod.GET})
+    public String createUserOrderWithMq(@RequestParam(value = "sid") Integer sid,
+                                  @RequestParam(value = "userId") Integer userId) {
+        try {
+            // 检查缓存中该用户是否已经下单过
+            Boolean hasOrder = orderService.checkUserOrderInfoInCache(sid, userId);
+            if (hasOrder != null && hasOrder) {
+                log.info("该用户已经抢购过");
+                return "你已经抢购过了，不要太贪心.....";
+            }
+            // 没有下单过，检查缓存中商品是否还有库存
+            log.info("没有抢购过，检查缓存中商品是否还有库存");
+            Integer count = stockService.getStockCount(sid);
+            if (count == 0) {
+                return "秒杀请求失败，库存不足.....";
+            }
+
+            // 有库存，则将用户id和商品id封装为消息体传给消息队列处理
+            // 注意这里的有库存和已经下单都是缓存中的结论，存在不可靠性，在消息队列中会查表再次验证
+            log.info("有库存：[{}]", count);
+            JSONObject jsonObject = new JSONObject();
+            jsonObject.put("sid", sid);
+            jsonObject.put("userId", userId);
+            sendToOrderQueue(jsonObject.toJSONString());
+            return "秒杀请求提交成功";
+        } catch (Exception e) {
+            log.error("下单接口：异步处理订单异常：", e);
+            return "秒杀请求失败，服务器正忙.....";
+        }
+    }
+
+    /**
+     * 检查缓存中用户是否已经生成订单
+     * @param sid
+     * @param userId
+     * @return
+     */
+    @RequestMapping(value = "/checkOrderByUserIdInCache",method = {RequestMethod.GET})
+    public String checkOrderByUserIdInCache(@RequestParam(value = "sid") Integer sid,
+                                            @RequestParam(value = "userId") Integer userId) {
+        //检查缓存中该用户是否下单过
+        try {
+            Boolean hasOrder = orderService.checkUserOrderInfoInCache(sid, userId);
+            if(hasOrder != null && hasOrder){
+                return "恭喜您，已经抢购成功！";
+            }
+        } catch (Exception e) {
+            log.error("检查订单异常", e);
+        }
+        return "很抱歉，您的订单尚未生成，继续排队";
+    }
+
+    /**
      * 缓存再删除线程
      */
     private class delCacheByThread implements Runnable {
